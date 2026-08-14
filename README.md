@@ -54,9 +54,10 @@ ESM 绑定不可运行时 patch、provider 路由不可重注册。因此：
 ```
 patch/dsh-llm-pi-ai-supportsDeveloperRole.patch   补丁本体（git apply 可用，LF 已保真）
 scripts/apply.ps1                                 一键：定位 → 打补丁 → 校验 → 检查设置 → 提示重启
+scripts/wire-test.ps1                             中转 wire 层全量测试：7 档矩阵 / 体积扫描 / 角色 / 并发
 plugin/relay-doctor.js                            医生插件：挂载时体检，缺补丁/缺开关提前告警
 settings/lyai-snippet.yaml                        中转 provider 配置片段（7 档映射 + compat 开关）
-docs/new-api-integration.md                       接入手册：协议对比、档位映射、413 三条出路、验收清单
+docs/new-api-integration.md                       接入手册：协议对比、档位映射、413 三条出路、验收清单、wire 实测记录
 docs/upstream.md                                  上游 PR 说明
 ```
 

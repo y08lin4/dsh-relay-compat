@@ -45,7 +45,7 @@ expected one of 'system', 'user', 'assistant', 'tool', 'latest_reminder'
 ## 3. 思考档：7 档 wire 值映射
 
 中转接受的 `reasoning_effort` wire 值为 `none/minimal/low/medium/high/xhigh/max`；
-**`off` 直接发会被拒**，所以 settings 里必须写 `off: "none"` 映射。
+**`off` 直接发会被拒**（实测 400，见 §7），所以 settings 里必须写 `off: "none"` 映射。
 DSH 侧档位键（选择器与 `effort` 参数）为 `off/minimal/low/medium/high/xhigh/max`。
 
 | DSH 档位 | wire 值 | 用途建议 |
@@ -60,9 +60,9 @@ DSH 侧档位键（选择器与 `effort` 参数）为 `off/minimal/low/medium/hi
 
 ## 4. 413 Payload Too Large：DSH 侧无解
 
-**事实**（实测）：请求体 512KB→200，1024KB→413；直连面板端口（绕过 nginx /
-Cloudflare）同样 413 → 限制在 **new-api 进程自身的 Gin 层 1MB 请求体上限**，
-不是环境变量可调，改 nginx `client_max_body_size` 无效。
+**事实**（实测）：请求体 512/900/1000/1024KB→200，1050KB→413（阈值恰好 ≈1MB）；
+直连面板端口（绕过 nginx / Cloudflare）同样 413 → 限制在 **new-api 进程自身的
+Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max_body_size` 无效。
 
 **触发场景**：长对话（历史累积）+ DSH 每轮重发 system prompt 与全工具 schema，
 请求体越过 1MB。新会话短对话不触发。
@@ -92,3 +92,20 @@ Cloudflare）同样 413 → 限制在 **new-api 进程自身的 Gin 层 1MB 请�
 | off 档被拒 / 仍思考 | `off: "none"` 映射没写；确认 `api: openai-completions` |
 | 413 | 见第 4 节；把长会话拆短或换中转 |
 | 补丁打不上 | 版本漂移，按 `docs/upstream.md` 的 5 处清单手动改 |
+
+## 7. wire 实测记录（可复验）
+
+`scripts/wire-test.ps1` 一键复验（`-Base` / `-KeyEnv` 参数化，key 走环境变量不落盘）。
+作者中转（new-api + DeepSeek 后端）2025-08-14 实测：
+
+| 项 | 结果 |
+|---|---|
+| 7 档 × 2 模型（flash / pro） | 全 200 ✅ |
+| `none` | think=no（关思考生效）✅ |
+| 其余 6 档 | think=YES ✅ |
+| `off` 直接发 wire | 400 ❌ → `off:"none"` 映射必需 |
+| developer 角色 | 400 ❌ → 补丁 + `supportsDeveloperRole:false` 必需 |
+| 请求体体积 | 1024KB→200，1050KB→413（阈值 ≈1MB） |
+| 20 路并发 | 20×200，无 429 ✅ |
+
+结论：接入手册第 1–3 节的做法全部被实测背书；唯一无解项是 413（第 4 节）。
