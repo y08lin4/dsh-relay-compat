@@ -1,0 +1,41 @@
+# dsh-relay-compat：中转 provider 配置片段
+# 合并进 ~/.dsh/settings.yaml（与已有 llm-pi-ai 节合并；provider 名自定）。
+# baseURL 换成你的中转地址；API key 放进 ~/.dsh/.credentials.yaml
+# （apiKeyEnv 指向 credentials 里的 key 名）。
+#
+# 关键点：
+#   - api 必须是 openai-completions（三协议中唯一被验证可靠的）；
+#   - reasoningEfforts 的 off 必须映射成 "none"——wire 直接传 "off" 会被 DeepSeek 后端拒；
+#   - compat.supportsDeveloperRole: false 需要 patch/ 里的补丁才可被读取。
+
+llm-pi-ai:
+  providers:
+    lyai:                                  # provider 名自定，模型选择器里用它
+      apiKeyEnv: LYAI_API_KEY
+      api: openai-completions
+      baseURL: https://your-relay.example.com/v1
+      models:
+        - id: deepseek-v4-flash
+          reasoningEfforts:
+            off: "none"
+            minimal: "minimal"
+            low: "low"
+            medium: "medium"
+            high: "high"
+            xhigh: "xhigh"
+            max: "max"
+          compat:
+            supportsReasoningEffort: true
+            supportsDeveloperRole: false   # ← 补丁后此开关才被读取；漏掉会复现 developer 400
+        - id: deepseek-v4-pro
+          reasoningEfforts:
+            off: "none"
+            minimal: "minimal"
+            low: "low"
+            medium: "medium"
+            high: "high"
+            xhigh: "xhigh"
+            max: "max"
+          compat:
+            supportsReasoningEffort: true
+            supportsDeveloperRole: false

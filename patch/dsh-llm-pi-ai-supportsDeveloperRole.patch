@@ -1,0 +1,42 @@
+From: dsh-multiagent-modes
+Subject: [PATCH] pi-ai: expose supportsDeveloperRole in compat profile
+
+Expose `compat.supportsDeveloperRole` per model / per route so a relay
+whose DeepSeek backend rejects the `developer` role (it only accepts
+`system`) can force the OpenAI-completions adapter to emit `system`.
+
+Without this flag, `@earendil-works/pi-ai` defaults `useDeveloperRole`
+to true for reasoning models, producing `messages[0].role: "developer"`
+and a 400 invalid_request_error from DeepSeek-compatible relays such as
+new-api. Set `compat.supportsDeveloperRole: false` on the model entry to
+force `system`.
+
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -1068,14 +1068,16 @@ function resolveModelCompat(provider, entry, route, base, api) {
+ function resolveModelCompat(provider, entry, route, base, api) {
+ 	const thinkingFormat = entry.compat?.thinkingFormat ?? route?.thinkingFormat;
+ 	const supportsReasoningEffort = entry.compat?.supportsReasoningEffort ?? route?.supportsReasoningEffort;
++	const supportsDeveloperRole = entry.compat?.supportsDeveloperRole ?? route?.supportsDeveloperRole;
+-	if (thinkingFormat === void 0 && supportsReasoningEffort === void 0) return {};
++	if (thinkingFormat === void 0 && supportsReasoningEffort === void 0 && supportsDeveloperRole === void 0) return {};
+ 	if (api !== "openai-completions") {
+-		if (entry.compat?.thinkingFormat !== void 0 || entry.compat?.supportsReasoningEffort !== void 0) invalid(provider, `model "${entry.id}" sets compat reasoning switches, but its api is "${api}"; thinkingFormat and supportsReasoningEffort exist only on openai-completions`);
++		if (entry.compat?.thinkingFormat !== void 0 || entry.compat?.supportsReasoningEffort !== void 0 || entry.compat?.supportsDeveloperRole !== void 0) invalid(provider, `model "${entry.id}" sets compat reasoning switches, but its api is "${api}"; thinkingFormat and supportsReasoningEffort exist only on openai-completions`);
+ 		return {};
+ 	}
+ 	return { compat: {
+ 		...base?.api === api ? base.compat : void 0,
+ 		...thinkingFormat === void 0 ? {} : { thinkingFormat },
+-		...supportsReasoningEffort === void 0 ? {} : { supportsReasoningEffort }
++		...supportsReasoningEffort === void 0 ? {} : { supportsReasoningEffort },
++		...supportsDeveloperRole === void 0 ? {} : { supportsDeveloperRole }
+ 	} };
+ }
+@@ -1333,4 +1335,5 @@ const compatProfile = z.object({
+ const compatProfile = z.object({
+ 	thinkingFormat: z.union(SUPPORTED_THINKING_FORMATS),
+-	supportsReasoningEffort: z.boolean()
++	supportsReasoningEffort: z.boolean(),
++	supportsDeveloperRole: z.boolean()
+ });
