@@ -107,5 +107,6 @@ Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max
 | developer 角色 | 400 ❌ → 补丁 + `supportsDeveloperRole:false` 必需 |
 | 请求体体积 | 1024KB→200，1050KB→413（阈值 ≈1MB） |
 | 20 路并发 | 20×200，无 429 ✅ |
+| 工具 schema 400 回归 | 属性级 `required:true` → 400；对象级 `required:[...]` → 200（DSH 插件必须用编译形态；注意 `tool_choice:"none"` 会跳过校验，测试必须走真实工具调用路径） |
 
 结论：接入手册第 1–3 节的做法全部被实测背书；唯一无解项是 413（第 4 节）。

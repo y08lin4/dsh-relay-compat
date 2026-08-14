@@ -82,4 +82,19 @@ $results = 1..$Concurrency | ForEach-Object -Parallel {
 } -ThrottleLimit $Concurrency
 $results | Group-Object | ForEach-Object { "{0} x {1}" -f $_.Name, $_.Count }
 
+Write-Output ""
+Write-Output "=== 5) tool schema A/B (developer 之外的 400 回归) ==="
+# 注意：tool_choice="none" 会让部分中转跳过 tools 校验，必须走真实工具调用路径。
+$newParams = [ordered]@{ type = "object"; properties = [ordered]@{ description = [ordered]@{ type = "string"; description = "A short (3-5 word) description." }; prompt = [ordered]@{ type = "string"; description = "The complete task." } }; required = @("description", "prompt") }
+$oldParams = [ordered]@{ description = [ordered]@{ type = "string"; required = $true; description = "A short description." }; prompt = [ordered]@{ type = "string"; required = $true; description = "The task." } }
+function ToolSchemaProbe($label, $paramsObj) {
+  $body = @{ model = $Models[0]; messages = @(@{ role = "user"; content = "请调用 subagent 工具" }); max_tokens = 64; tools = @(@{ type = "function"; function = @{ name = "subagent"; description = "delegation tool"; parameters = $paramsObj } }) } | ConvertTo-Json -Depth 8 -Compress
+  try {
+    $r = Invoke-WebRequest -Uri "$Base/chat/completions" -Method POST -Headers $h -ContentType "application/json" -Body $body -TimeoutSec 60 -SkipHttpErrorCheck
+    "{0} -> {1}" -f $label, [int]$r.StatusCode
+  } catch { "{0} -> EXC {1}" -f $label, $_.Exception.Message }
+}
+ToolSchemaProbe "OLD property-level required" $oldParams
+ToolSchemaProbe "NEW object-level required  " $newParams
+
 Write-Output "=== done ==="
