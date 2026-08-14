@@ -58,22 +58,49 @@ DSH 侧档位键（选择器与 `effort` 参数）为 `off/minimal/low/medium/hi
 
 注意：**不传 effort 时模型默认思考开启**——想要省钱，必须显式传 `off`。
 
-## 4. 413 Payload Too Large：DSH 侧无解
+## 4. 413 Payload Too Large：环境变量解决（无需改源码）
 
 **事实**（实测）：请求体 512/900/1000/1024KB→200，1050KB→413（阈值恰好 ≈1MB）；
-直连面板端口（绕过 nginx / Cloudflare）同样 413 → 限制在 **new-api 进程自身的
-Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max_body_size` 无效。
+直连面板端口（绕过 nginx / Cloudflare）同样 413，改 nginx `client_max_body_size` 无效。
 
-**触发场景**：长对话（历史累积）+ DSH 每轮重发 system prompt 与全工具 schema，
-请求体越过 1MB。新会话短对话不触发。
+**根因**（源码级确认，`common/init.go`）：
 
-**三条出路**：
+```go
+// MaxRequestBodyMB 请求体最大大小（解压后），用于防止超大请求/zip bomb导致内存暴涨
+constant.MaxRequestBodyMB = GetEnvOrDefault("MAX_REQUEST_BODY_MB", 128)
+```
 
-1. **改源码重建镜像（治本）**：fork `QuantumNous/new-api`，找到 body 限制
-   （`MaxBytesReader` / `1<<20` 之类），改大后自行 build Docker 镜像替换。
-2. **换中转**：换 one-api（new-api 前身，可能无此 1MB 限制）或官方 key
-   （`deepseek-official` 无此限制）。
-3. **DSH 侧减小请求体（治标）**：精简 persona / 工具描述；勤开新会话控制历史长度。
+relay 路径（`/v1/chat/completions`）读请求体用的就是这个常量
+（`common/gin.go:60`）。**默认 128MB**；部署里把它设成了 `1` 才会在 1MB 处 413。
+（另有 `ANONYMOUS_REQUEST_BODY_LIMIT_KB` 默认 512KB，只作用于匿名 webhook 路由，
+与 relay 无关，别动它。）
+
+**修复（治本，不用改源码/重建镜像）**：给 new-api 容器加环境变量并重启——
+
+```yaml
+# docker-compose.yml 里给 new-api 服务加：
+environment:
+  - MAX_REQUEST_BODY_MB=32
+```
+
+```bash
+docker compose up -d   # 或 docker run -e MAX_REQUEST_BODY_MB=32 ...
+```
+
+改完用 `scripts/wire-test.ps1` 的体积扫描复验（预期 2MB 也过）。
+若你的镜像版本没有这个变量（旧版），先升级镜像再设。
+
+**触发场景**（没改之前）：长对话（历史累积）+ DSH 每轮重发 system prompt 与全工具
+schema，请求体越过 1MB。新会话短对话不触发。
+
+**DSH 侧预算参考**（把环境变量改大后基本用不上，但有助于心里有数）：
+
+- 静态负载：preset persona+SKILL ≈ 27KB，加上工具 schema 与 base prompt 合计通常
+  几十 KB~100KB+；
+- 增长源：对话历史与工具结果。DSH 自带 `compaction`（上下文压缩）与
+  `toolResultPruner`（工具结果裁剪）兜底，`llm/stream` 瀑布可作为额外保险
+  （可写插件在发送前测体并瘦身，但环境变量修好后属锦上添花）。
+- 若坚持不碰服务端：`scheduler-fast` 预设的 persona 更精简；勤开新会话。
 
 ## 5. 验收清单
 
@@ -81,7 +108,7 @@ Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max
 - [ ] 简单对话通（无 developer 400）
 - [ ] `off`/`none` 档：简单任务不思考、token 明显下降
 - [ ] 7 档在模型选择器可见、逐档可跑
-- [ ] 长对话越 1MB 前的表现已知（413 属服务端，非本仓库可修）
+- [ ] 长对话越过旧 1MB 阈值不再 413（`MAX_REQUEST_BODY_MB` 已改大并重启容器）
 - [ ] `plugin/relay-doctor.js` 挂载后启动日志正常
 
 ## 6. 排障速查
@@ -90,7 +117,7 @@ Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max
 |---|---|
 | developer 400 | 补丁丢了（跑 apply.ps1）或开关没写 false；改完必须重启 |
 | off 档被拒 / 仍思考 | `off: "none"` 映射没写；确认 `api: openai-completions` |
-| 413 | 见第 4 节；把长会话拆短或换中转 |
+| 413 | 见第 4 节；设 `MAX_REQUEST_BODY_MB=32` 重启容器（无需改源码） |
 | 补丁打不上 | 版本漂移，按 `docs/upstream.md` 的 5 处清单手动改 |
 
 ## 7. wire 实测记录（可复验）
@@ -105,8 +132,9 @@ Gin 层 1MB 请求体上限**，不是环境变量可调，改 nginx `client_max
 | 其余 6 档 | think=YES ✅ |
 | `off` 直接发 wire | 400 ❌ → `off:"none"` 映射必需 |
 | developer 角色 | 400 ❌ → 补丁 + `supportsDeveloperRole:false` 必需 |
-| 请求体体积 | 1024KB→200，1050KB→413（阈值 ≈1MB） |
+| 请求体体积 | 1024KB→200，1050KB→413（阈值 ≈1MB，与 `MAX_REQUEST_BODY_MB=1` 完全吻合） |
 | 20 路并发 | 20×200，无 429 ✅ |
 | 工具 schema 400 回归 | 属性级 `required:true` → 400；对象级 `required:[...]` → 200（DSH 插件必须用编译形态；注意 `tool_choice:"none"` 会跳过校验，测试必须走真实工具调用路径） |
 
-结论：接入手册第 1–3 节的做法全部被实测背书；唯一无解项是 413（第 4 节）。
+结论：接入手册第 1–3 节的做法全部被实测背书；413 有官方环境变量解法（第 4 节），
+全表无「无解」项。

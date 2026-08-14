@@ -14,7 +14,7 @@
 |---|---|---|---|
 | 1 | `400: messages[0].role: unknown variant 'developer'` | pi-ai 对非知名域名默认把 system prompt 发成 `developer`，DeepSeek 后端只认 `system` | `patch/` 补丁 + 设置 `compat.supportsDeveloperRole: false` |
 | 2 | 思考档选不了 / 选错 | 官方默认档位（off/high/max）与中转的 wire 值（none/minimal/…/max）对不上，`off` 直接发 `off` 会被拒 | `settings/` 里的 7 档 `reasoningEfforts` 映射（`off`→`none`） |
-| 3 | `413 Payload Too Large` | new-api 自身 1MB 请求体上限（Gin 层硬限制），改 nginx 没用 | 服务端问题，DSH 侧无解——三条出路见 [docs/new-api-integration.md](docs/new-api-integration.md) |
+| 3 | `413 Payload Too Large` | new-api 的 `MAX_REQUEST_BODY_MB` 环境变量被设成了 1（默认 128MB） | 环境变量改大重启容器，无需改源码——见 [docs/new-api-integration.md](docs/new-api-integration.md) 第 4 节 |
 
 另附协议选型实测结论：**openai-completions 是三个协议里唯一可靠的一个**
 （openai-responses 的 reasoning 映射坏、anthropic-messages 的 thinking 映射坏）。
@@ -57,7 +57,7 @@ scripts/apply.ps1                                 一键：定位 → 打补丁 
 scripts/wire-test.ps1                             中转 wire 层全量测试：7 档矩阵 / 体积扫描 / 角色 / 并发
 plugin/relay-doctor.js                            医生插件：挂载时体检，缺补丁/缺开关提前告警
 settings/lyai-snippet.yaml                        中转 provider 配置片段（7 档映射 + compat 开关）
-docs/new-api-integration.md                       接入手册：协议对比、档位映射、413 三条出路、验收清单、wire 实测记录
+docs/new-api-integration.md                       接入手册：协议对比、档位映射、413 环境变量修复、验收清单、wire 实测记录
 docs/upstream.md                                  上游 PR 说明
 ```
 
@@ -79,8 +79,9 @@ docs/upstream.md                                  上游 PR 说明
 
 ## 边界 / Limits
 
-- **413 无解于 DSH 侧**：new-api 的 1MB 请求体上限写在 Go 源码里，不是环境变量可调；
-  三条出路（改源码重建镜像 / 换 one-api / 减小请求体）见 [docs/new-api-integration.md](docs/new-api-integration.md)。
+- **413 已找到官方解法**：根因是 new-api 的 `MAX_REQUEST_BODY_MB` 环境变量（默认 128MB，
+  部署把它设成了 1）。设成 32 重启容器即可，**无需改源码/重建镜像**——详见
+  [docs/new-api-integration.md](docs/new-api-integration.md) 第 4 节。
 - **补丁以版本为准**：补丁行号基于当前 `dsh-llm-pi-ai` 版本；版本漂移导致无法 apply 时，
   按补丁的 5 处语义改动手动打（`docs/upstream.md` 有清单）。
 - **终点是上游**：`patch/` 里的 5 处改动提 PR 给 `@deepseek-ai/dsh-llm-pi-ai` 后，
